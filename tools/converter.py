@@ -68,9 +68,13 @@ def _last_tag(container: Tag) -> Tag | None:
     return None
 
 
+def _has_media(el: Tag) -> bool:
+    return el.name in ("img", "iframe") or el.find(["img", "iframe"]) is not None
+
+
 def _is_boilerplate(el: Tag) -> bool:
     text = _text(el)
-    if el.name == "hr" or (not text and el.find("img") is None):
+    if el.name == "hr" or (not text and not _has_media(el)):
         return True
     if len(text) > _BOILERPLATE_MAX_LEN:
         return False
@@ -82,7 +86,7 @@ def _strip_footer(container: Tag) -> None:
     while (last := _last_tag(container)) is not None:
         if last.name in WRAPPERS:
             _strip_footer(last)
-            if _text(last) or last.find("img") is not None:
+            if _text(last) or _has_media(last):
                 return
             last.decompose()
         elif _is_boilerplate(last):
