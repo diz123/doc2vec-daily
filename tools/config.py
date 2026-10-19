@@ -25,6 +25,7 @@ class Settings:
     gemini_api_key: str
     store_display_name: str
     upload_workers: int
+    chat_model: str
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -36,7 +37,8 @@ class Settings:
             zendesk_locale=os.getenv("ZENDESK_LOCALE", "").strip() or "en-us",
             max_articles=_int_env("MAX_ARTICLES", 0),
             output_dir=Path(os.getenv("OUTPUT_DIR", "").strip() or "data/articles"),
-            gemini_api_key=os.getenv("GEMINI_API_KEY", "").strip(),
+            gemini_api_key=(os.getenv("GEMINI_API_KEY") or os.getenv("API_KEY") or "").strip(),
             store_display_name=os.getenv("FILE_SEARCH_STORE", "").strip() or "help-center-kb",
             upload_workers=_int_env("UPLOAD_WORKERS", 4),
+            chat_model=os.getenv("CHAT_MODEL", "").strip() or "gemini-3.8-flash",
         )

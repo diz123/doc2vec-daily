@@ -72,6 +72,11 @@ def main() -> int:
         stats.added, stats.updated, stats.skipped, stats.deleted, stats.failed,
         stats.files_uploaded, stats.chunks_uploaded,
     )
+    synced = [d for d in docs if d.article_id not in stats.failed_ids]
+    log.info(
+        "Store total: files=%d chunks=%d (%s)",
+        len(synced), sum(len(d.chunks) for d in synced), sync.store_name,
+    )
     return 1 if stats.failed else 0
 
 

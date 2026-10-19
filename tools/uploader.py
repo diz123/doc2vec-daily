@@ -33,6 +33,14 @@ def content_hash(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
 
 
+def find_store(client: genai.Client, display_name: str) -> str | None:
+    """Resource name of the File Search store with this display name, if any."""
+    for store in client.file_search_stores.list():
+        if store.display_name == display_name and store.name:
+            return store.name
+    return None
+
+
 @dataclass(frozen=True)
 class ArticleDoc:
     article_id: int
@@ -58,6 +66,7 @@ class SyncStats:
     files_uploaded: int = 0
     chunks_uploaded: int = 0
     failures: list[str] = field(default_factory=list)
+    failed_ids: set[int] = field(default_factory=set)
 
 
 class StoreSync:
@@ -69,11 +78,11 @@ class StoreSync:
 
     def ensure_store(self) -> str:
         """Find the store by display name, creating it on first run."""
-        for store in self._client.file_search_stores.list():
-            if store.display_name == self._display_name and store.name:
-                self.store_name = store.name
-                log.info("Using File Search store %s", self.store_name)
-                return self.store_name
+        existing = find_store(self._client, self._display_name)
+        if existing:
+            self.store_name = existing
+            log.info("Using File Search store %s", self.store_name)
+            return self.store_name
         store = self._client.file_search_stores.create(config={"display_name": self._display_name})
         if not store.name:
             raise RuntimeError("File Search store was created without a name")
@@ -83,7 +92,9 @@ class StoreSync:
 
     def _existing(self) -> dict[int, list[StoredDoc]]:
         by_article: dict[int, list[StoredDoc]] = {}
-        for doc in self._client.file_search_stores.documents.list(parent=self.store_name):
+        for doc in self._client.file_search_stores.documents.list(
+            parent=self.store_name, config={"page_size": 20}  # API maximum
+        ):
             meta = {m.key: m.string_value for m in (doc.custom_metadata or []) if m.key}
             raw_id = meta.get("article_id")
             if not doc.name or not raw_id or not raw_id.isdigit():
@@ -151,6 +162,7 @@ class StoreSync:
         # mismatch that the next run detects and repairs.
         with ThreadPoolExecutor(max_workers=self._workers) as pool:
             list(pool.map(lambda item: self._delete(item[1]), [p for p in pending if p[1]]))
+        log.info("Removed outdated documents of %d articles", sum(1 for _, old in pending if old))
 
         # Upload every chunk of every pending article in parallel.
         failed: dict[int, str] = {}
@@ -165,6 +177,8 @@ class StoreSync:
                 try:
                     future.result()
                     stats.chunks_uploaded += 1
+                    if stats.chunks_uploaded % 100 == 0:
+                        log.info("Uploaded %d/%d chunks", stats.chunks_uploaded, len(futures))
                 except Exception as exc:  # keep going; the next run retries this article
                     if article.article_id not in failed:
                         log.error("Failed to upload %s: %s", article.slug, exc)
@@ -173,6 +187,7 @@ class StoreSync:
         for article, old in pending:
             if article.article_id in failed:
                 stats.failed += 1
+                stats.failed_ids.add(article.article_id)
                 stats.failures.append(failed[article.article_id])
             else:
                 stats.files_uploaded += 1
