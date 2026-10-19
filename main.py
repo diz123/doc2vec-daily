@@ -17,6 +17,7 @@ from google import genai
 from tools.chunker import chunk_markdown
 from tools.config import Settings
 from tools.converter import html_to_markdown, render_document
+from tools.runlog import LOG_FORMAT, RunLog
 from tools.scraper import iter_articles
 from tools.uploader import ArticleDoc, StoreSync, content_hash
 
@@ -29,11 +30,29 @@ def main() -> int:
     args = parser.parse_args()
 
     load_dotenv()
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
     logging.getLogger("httpx").setLevel(logging.WARNING)
+    run_log = RunLog()
+    run_log.attach(logging.getLogger())
     settings = Settings.from_env()
+    summary: dict[str, object] = {"status": "failed"}
+    try:
+        exit_code = _run(settings, args.skip_upload, summary)
+    except Exception:
+        log.exception("Run failed")
+        exit_code = 1
+    if settings.log_dir:
+        try:
+            log.info("Writing run log to %s", settings.log_dir)
+            run_log.write(settings.log_dir, summary)
+        except OSError as exc:
+            log.error("Could not write run log to %s: %s", settings.log_dir, exc)
+    return exit_code
+
+
+def _run(settings: Settings, skip_upload: bool, summary: dict[str, object]) -> int:
     full_run = settings.max_articles == 0
-    if not args.skip_upload and not settings.gemini_api_key:
+    if not skip_upload and not settings.gemini_api_key:
         log.error("GEMINI_API_KEY is not set (see .env.sample)")
         return 1
 
@@ -61,7 +80,9 @@ def main() -> int:
             if stale.name not in written:
                 stale.unlink()
     log.info("Wrote %d Markdown files to %s (%d chunks)", len(docs), settings.output_dir, sum(len(d.chunks) for d in docs))
-    if args.skip_upload:
+    summary.update(articles_scraped=len(docs), chunks_total=sum(len(d.chunks) for d in docs))
+    if skip_upload:
+        summary["status"] = "ok (upload skipped)"
         return 0
 
     # 2) Delta upload to the File Search store.
@@ -76,6 +97,14 @@ def main() -> int:
     log.info(
         "Store total: files=%d chunks=%d (%s)",
         len(synced), sum(len(d.chunks) for d in synced), sync.store_name,
+    )
+    summary.update(
+        status="failed" if stats.failed else "ok",
+        added=stats.added, updated=stats.updated, skipped=stats.skipped,
+        deleted=stats.deleted, failed=stats.failed,
+        embedded_files=stats.files_uploaded, embedded_chunks=stats.chunks_uploaded,
+        store_files=len(synced), store_chunks=sum(len(d.chunks) for d in synced),
+        failures=stats.failures,
     )
     return 1 if stats.failed else 0
 

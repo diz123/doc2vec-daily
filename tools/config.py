@@ -26,6 +26,7 @@ class Settings:
     store_display_name: str
     upload_workers: int
     chat_model: str
+    log_dir: Path | None  # None = do not write run logs
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -41,4 +42,5 @@ class Settings:
             store_display_name=os.getenv("FILE_SEARCH_STORE", "").strip() or "help-center-kb",
             upload_workers=_int_env("UPLOAD_WORKERS", 4),
             chat_model=os.getenv("CHAT_MODEL", "").strip() or "gemini-3.8-flash",
+            log_dir=Path(os.environ["LOG_DIR"].strip()) if os.getenv("LOG_DIR", "").strip() else None,
         )
