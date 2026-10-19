@@ -63,17 +63,22 @@ class SyncStats:
     skipped: int = 0
     deleted: int = 0
     failed: int = 0
+    deferred: int = 0  # pending articles left for the next run (upload_batch cap)
     files_uploaded: int = 0
     chunks_uploaded: int = 0
     failures: list[str] = field(default_factory=list)
     failed_ids: set[int] = field(default_factory=set)
+    in_store_ids: set[int] = field(default_factory=set)  # articles fully present after this run
 
 
 class StoreSync:
-    def __init__(self, client: genai.Client, store_display_name: str, workers: int = 4) -> None:
+    def __init__(
+        self, client: genai.Client, store_display_name: str, workers: int = 4, upload_batch: int = 0
+    ) -> None:
         self._client = client
         self._display_name = store_display_name
         self._workers = max(1, workers)
+        self._upload_batch = max(0, upload_batch)  # 0 = no cap
         self.store_name = ""
 
     def ensure_store(self) -> str:
@@ -154,8 +159,13 @@ class StoreSync:
             )
             if old and unchanged:
                 stats.skipped += 1
+                stats.in_store_ids.add(article.article_id)
             else:
                 pending.append((article, old))
+        if self._upload_batch and len(pending) > self._upload_batch:
+            stats.deferred = len(pending) - self._upload_batch
+            pending = pending[: self._upload_batch]
+            log.info("Upload batch cap %d: %d articles deferred to the next run", self._upload_batch, stats.deferred)
         log.info("%d articles to upload (%d chunks)", len(pending), sum(len(a.chunks) for a, _ in pending))
 
         # Remove stale documents first, so a partial failure leaves a chunk-count
@@ -191,6 +201,7 @@ class StoreSync:
                 stats.failures.append(failed[article.article_id])
             else:
                 stats.files_uploaded += 1
+                stats.in_store_ids.add(article.article_id)
                 if old:
                     stats.updated += 1
                 else:

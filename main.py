@@ -86,14 +86,19 @@ def _run(settings: Settings, skip_upload: bool, summary: dict[str, object]) -> i
         return 0
 
     # 2) Delta upload to the File Search store.
-    sync = StoreSync(genai.Client(api_key=settings.gemini_api_key), settings.store_display_name, settings.upload_workers)
+    sync = StoreSync(
+        genai.Client(api_key=settings.gemini_api_key),
+        settings.store_display_name,
+        workers=settings.upload_workers,
+        upload_batch=settings.upload_batch,
+    )
     stats = sync.sync(docs, allow_deletes=full_run)
     log.info(
-        "Sync done: added=%d updated=%d skipped=%d deleted=%d failed=%d | embedded files=%d chunks=%d",
-        stats.added, stats.updated, stats.skipped, stats.deleted, stats.failed,
+        "Sync done: added=%d updated=%d skipped=%d deleted=%d failed=%d deferred=%d | embedded files=%d chunks=%d",
+        stats.added, stats.updated, stats.skipped, stats.deleted, stats.failed, stats.deferred,
         stats.files_uploaded, stats.chunks_uploaded,
     )
-    synced = [d for d in docs if d.article_id not in stats.failed_ids]
+    synced = [d for d in docs if d.article_id in stats.in_store_ids]
     log.info(
         "Store total: files=%d chunks=%d (%s)",
         len(synced), sum(len(d.chunks) for d in synced), sync.store_name,
@@ -101,7 +106,7 @@ def _run(settings: Settings, skip_upload: bool, summary: dict[str, object]) -> i
     summary.update(
         status="failed" if stats.failed else "ok",
         added=stats.added, updated=stats.updated, skipped=stats.skipped,
-        deleted=stats.deleted, failed=stats.failed,
+        deleted=stats.deleted, failed=stats.failed, deferred=stats.deferred,
         embedded_files=stats.files_uploaded, embedded_chunks=stats.chunks_uploaded,
         store_files=len(synced), store_chunks=sum(len(d.chunks) for d in synced),
         failures=stats.failures,

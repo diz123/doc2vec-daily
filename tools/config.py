@@ -25,6 +25,7 @@ class Settings:
     gemini_api_key: str
     store_display_name: str
     upload_workers: int
+    upload_batch: int  # max articles uploaded per run; 0 = no cap
     chat_model: str
     log_dir: Path | None  # None = do not write run logs
 
@@ -41,6 +42,7 @@ class Settings:
             gemini_api_key=(os.getenv("GEMINI_API_KEY") or os.getenv("API_KEY") or "").strip(),
             store_display_name=os.getenv("FILE_SEARCH_STORE", "").strip() or "help-center-kb",
             upload_workers=_int_env("UPLOAD_WORKERS", 4),
+            upload_batch=_int_env("UPLOAD_BATCH", 0),
             chat_model=os.getenv("CHAT_MODEL", "").strip() or "gemini-3.8-flash",
             log_dir=Path(os.environ["LOG_DIR"].strip()) if os.getenv("LOG_DIR", "").strip() else None,
         )

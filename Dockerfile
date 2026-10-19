@@ -6,6 +6,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     ZENDESK_LOCALE=en-us \
     FILE_SEARCH_STORE=help-center-kb \
     UPLOAD_WORKERS=16 \
+    UPLOAD_BATCH=100 \
     LOG_DIR=/app/runs
 
 WORKDIR /app
